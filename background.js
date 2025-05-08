@@ -1,24 +1,52 @@
 // background.js
 
-// IMPORTANT: Replace 'YOUR_GEMINI_API_KEY' with your actual Gemini API key.
-// Consider using chrome.storage.local for a more secure way for users to set their API key.
-const GEMINI_API_KEY = 'YOUR_GEMINI_API_KEY';
+// --- API Key Management ---
+async function getApiKey() {
+    return new Promise((resolve) => {
+        chrome.storage.local.get(['geminiApiKey'], (result) => {
+            resolve(result.geminiApiKey);
+        });
+    });
+}
 
-// Listener for the extension icon click to open the side panel if not already open,
-// or to toggle it if the browser supports that behavior.
+async function setApiKey(apiKey) {
+    return new Promise((resolve) => {
+        chrome.storage.local.set({ 'geminiApiKey': apiKey }, () => {
+            resolve(true);
+        });
+    });
+}
+
+async function removeApiKey() {
+    return new Promise((resolve) => {
+        chrome.storage.local.remove(['geminiApiKey'], () => {
+            resolve(true);
+        });
+    });
+}
+
+// Listener for the extension icon click
 chrome.action.onClicked.addListener(async (tab) => {
     await chrome.sidePanel.open({ windowId: tab.windowId });
 });
 
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     if (request.type === 'ANALYZE_CONTENT') {
-        callGeminiApi(request.payload, GEMINI_API_KEY)
-            .then(response => sendResponse({ success: true, data: response }))
-            .catch(error => {
-                console.error('Gemini API Error:', error);
-                sendResponse({ success: false, error: error.message || 'Unknown error calling Gemini API' });
-            });
-        return true;
+        getApiKey().then(apiKey => {
+            if (!apiKey) {
+                sendResponse({ success: false, error: 'API_KEY_MISSING', message: 'Gemini API Key is not set.' });
+                return;
+            }
+            callGeminiApi(request.payload, apiKey)
+                .then(response => sendResponse({ success: true, data: response }))
+                .catch(error => {
+                    console.error('Gemini API Error:', error);
+                    // Check if the error is due to an invalid key, although the API might not return a specific code for this.
+                    // For now, we'll rely on the user re-entering if it fails.
+                    sendResponse({ success: false, error: error.message || 'Unknown error calling Gemini API' });
+                });
+        });
+        return true; // Indicates that the response is sent asynchronously
     } else if (request.type === 'CAPTURE_SCREENSHOT') {
         chrome.tabs.captureVisibleTab(null, { format: 'png' }, (dataUrl) => {
             if (chrome.runtime.lastError) {
@@ -28,7 +56,27 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
             sendResponse({ success: true, screenshotDataUrl: dataUrl });
         });
         return true;
+    } else if (request.type === 'GET_API_KEY_STATUS') {
+        getApiKey().then(apiKey => {
+            if (apiKey) {
+                sendResponse({ success: true, apiKeySet: true, apiKeyLastChars: apiKey.slice(-5) });
+            } else {
+                sendResponse({ success: true, apiKeySet: false });
+            }
+        });
+        return true;
+    } else if (request.type === 'SET_API_KEY') {
+        setApiKey(request.apiKey).then(() => {
+            sendResponse({ success: true, apiKeyLastChars: request.apiKey.slice(-5) });
+        });
+        return true;
+    } else if (request.type === 'REMOVE_API_KEY') {
+        removeApiKey().then(() => {
+            sendResponse({ success: true });
+        });
+        return true;
     }
+    return false; // For synchronous messages or if the type is not handled
 });
 
 async function callGeminiApi(payload, apiKey) {
@@ -48,19 +96,11 @@ async function callGeminiApi(payload, apiKey) {
 
     const requestBody = {
         contents: [{ parts: parts }],
-        // Add system instruction to request Markdown output
         systemInstruction: {
             parts: [
                 { text: "Please format your entire response in Markdown. If you include code, use Markdown code blocks." }
             ]
         }
-        // Optional: Add generationConfig if needed
-        // generationConfig: {
-        //   temperature: 0.7,
-        //   topK: 32,
-        //   topP: 1,
-        //   maxOutputTokens: 8192, // Increased for potentially longer Markdown
-        // }
     };
 
     const response = await fetch(apiEndpoint, {
@@ -74,6 +114,10 @@ async function callGeminiApi(payload, apiKey) {
     if (!response.ok) {
         const errorData = await response.json();
         console.error('Gemini API Error Response:', errorData);
+        // Distinguish API key errors if possible, e.g. by status code or error message content
+        if (response.status === 400 && errorData.error?.message.toLowerCase().includes('api key not valid')) {
+             throw new Error('API_KEY_INVALID');
+        }
         const detailedMessage = errorData.error?.details?.[0]?.reason || errorData.error?.message;
         const errorMessage = detailedMessage || `API request failed with status ${response.status}`;
         throw new Error(errorMessage);
@@ -89,9 +133,9 @@ async function callGeminiApi(payload, apiKey) {
     } else if (data.promptFeedback && data.promptFeedback.blockReason) {
         return `Response blocked: ${data.promptFeedback.blockReason}${data.promptFeedback.blockReasonMessage ? ' - ' + data.promptFeedback.blockReasonMessage : ''}`;
     } else if (data.candidates && data.candidates.length > 0 && data.candidates[0].finishReason && data.candidates[0].finishReason !== "STOP") {
-        return `Model finished with reason: ${data.candidates[0].finishReason}. No text content available. (This might also be a Markdown response if the model only returned structured data, check console).`;
+        return `Model finished with reason: ${data.candidates[0].finishReason}. No text content available.`;
     }
 
     console.warn('Unexpected API response structure:', data);
-    return 'No content response from API or unexpected format. The response might be in a part that is not text.';
+    return 'No content response from API or unexpected format.';
 }

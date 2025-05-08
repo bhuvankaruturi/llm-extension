@@ -12,28 +12,49 @@
     <div class="container">
         <header>
             <h1>LLM Extension</h1>
-            <div class="model-selector-container">
-                <label for="model-selector">Select Model:</label>
-                <select id="model-selector">
-                    <option value="gemini-2.5-pro-exp-03-25">Gemini 2.5 Pro</option>
-                    <option value="gemini-2.5-flash-preview-04-17">Gemini 2.5 Flash</option>
-                </select>
+            <div class="header-controls">
+                <div class="model-selector-container">
+                    <label for="model-selector">Select Model:</label>
+                    <select id="model-selector">
+                        <option value="gemini-2.5-pro-exp-03-25">Gemini 2.5 Pro</option>
+                        <option value="gemini-2.5-flash-preview-04-17">Gemini 2.5 Flash</option>
+                    </select>
+                </div>
+                <button id="settings-btn" title="Settings">&#9881;</button>
             </div>
         </header>
-        <div class="chat-window">
-            <div id="chat-messages" class="chat-messages">
-            </div>
-            <div id="screenshot-preview-container" class="screenshot-preview-container" style="display:none;">
-                <p>Screenshot added to context:</p>
-                <img id="screenshot-preview" src="#" alt="Screenshot Preview" />
-                <button id="remove-screenshot-btn">Remove Screenshot</button>
-            </div>
+
+        <div id="settings-panel" class="settings-panel" style="display:none;">
+            <p id="api-key-status-display" style="display:none;"></p>
+            <button id="delete-api-key-btn">Delete Stored API Key</button>
         </div>
 
-        <div class="chat-input-area">
-            <button id="add-screenshot-btn">Add Page Screenshot to Context</button>
-            <textarea id="chat-input" placeholder="Type your message..." rows="3"></textarea>
-            <button id="send-btn">Send</button>
+        <div id="api-key-input-section" class="api-key-input-section" style="display:none;">
+            <h2>Enter Gemini API Key</h2>
+            <p>Your Gemini API Key is required to use this extension. It will be stored securely in your browser's local
+                storage.</p>
+            <label for="api-key-input">API Key:</label>
+            <input type="password" id="api-key-input" placeholder="Enter your API Key">
+            <button id="save-api-key-btn">Save Key</button>
+            <p class="api-key-note">You can obtain an API key from Google AI Studio.</p>
+        </div>
+
+        <div id="chat-section">
+            <div class="chat-window">
+                <div id="chat-messages" class="chat-messages">
+                </div>
+                <div id="screenshot-preview-container" class="screenshot-preview-container" style="display:none;">
+                    <p>Screenshot added to context:</p>
+                    <img id="screenshot-preview" src="#" alt="Screenshot Preview" />
+                    <button id="remove-screenshot-btn">Remove Screenshot</button>
+                </div>
+            </div>
+
+            <div class="chat-input-area">
+                <button id="add-screenshot-btn">Add Page Screenshot to Context</button>
+                <textarea id="chat-input" placeholder="Type your message..." rows="3"></textarea>
+                <button id="send-btn">Send</button>
+            </div>
         </div>
         <div id="loading-indicator" style="display:none;">Loading...</div>
         <div id="error-message" class="error-message" style="display:none;"></div>
