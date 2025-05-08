@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LLM Extension</title>
+    <link rel="stylesheet" href="sidepanel.css">
+</head>
+
+<body>
+    <div class="container">
+        <header>
+            <h1>LLM Extension</h1>
+            <div class="model-selector-container">
+                <label for="model-selector">Select Model:</label>
+                <select id="model-selector">
+                    <option value="gemini-2.5-pro-exp-03-25">Gemini 2.5 Pro</option>
+                    <option value="gemini-2.5-flash-preview-04-17">Gemini 2.5 Flash</option>
+                </select>
+            </div>
+        </header>
+        <div class="chat-window">
+            <div id="chat-messages" class="chat-messages">
+            </div>
+            <div id="screenshot-preview-container" class="screenshot-preview-container" style="display:none;">
+                <p>Screenshot added to context:</p>
+                <img id="screenshot-preview" src="#" alt="Screenshot Preview" />
+                <button id="remove-screenshot-btn">Remove Screenshot</button>
+            </div>
+        </div>
+
+        <div class="chat-input-area">
+            <button id="add-screenshot-btn">Add Page Screenshot to Context</button>
+            <textarea id="chat-input" placeholder="Type your message..." rows="3"></textarea>
+            <button id="send-btn">Send</button>
+        </div>
+        <div id="loading-indicator" style="display:none;">Loading...</div>
+        <div id="error-message" class="error-message" style="display:none;"></div>
+    </div>
+    <script src="marked.min.js"></script>
+    <script src="purify.min.js"></script>
+    <script src="sidepanel.js"></script>
+</body>
+
+</html>

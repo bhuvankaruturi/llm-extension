@@ -1,0 +1,326 @@
+/* sidepanel/sidepanel.css */
+body {
+    font-family: sans-serif;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+    /* Full viewport height */
+    background-color: #f4f4f9;
+    color: #333;
+}
+
+.container {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    padding: 10px;
+    box-sizing: border-box;
+}
+
+header {
+    padding-bottom: 10px;
+    border-bottom: 1px solid #ccc;
+    margin-bottom: 10px;
+}
+
+header h1 {
+    font-size: 1.2em;
+    margin: 0 0 10px 0;
+    color: #007bff;
+    /* A nice blue for the header */
+}
+
+.model-selector-container {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    /* Spacing between label and select */
+    font-size: 0.9em;
+}
+
+#model-selector {
+    padding: 5px;
+    border-radius: 4px;
+    border: 1px solid #ccc;
+    flex-grow: 1;
+    /* Allows the select to take available space if needed */
+}
+
+.chat-window {
+    flex-grow: 1;
+    /* Takes up available vertical space */
+    overflow-y: auto;
+    /* Allows scrolling for messages */
+    border: 1px solid #ddd;
+    background-color: #fff;
+    padding: 10px;
+    margin-bottom: 10px;
+    border-radius: 4px;
+}
+
+.chat-messages .message {
+    margin-bottom: 10px;
+    padding: 8px 12px;
+    border-radius: 15px;
+    max-width: 80%;
+    word-wrap: break-word;
+    /* Ensure long words don't overflow */
+}
+
+.chat-messages .user-message {
+    background-color: #007bff;
+    color: white;
+    margin-left: auto;
+    /* Aligns to the right */
+    border-bottom-right-radius: 5px;
+}
+
+.chat-messages .ai-message {
+    background-color: #e9ecef;
+    color: #333;
+    margin-right: auto;
+    /* Aligns to the left */
+    border-bottom-left-radius: 5px;
+}
+
+.screenshot-preview-container {
+    margin-top: 10px;
+    padding: 10px;
+    border: 1px dashed #ccc;
+    border-radius: 4px;
+    font-size: 0.9em;
+}
+
+.screenshot-preview-container p {
+    margin: 0 0 5px 0;
+}
+
+#screenshot-preview {
+    max-width: 100%;
+    max-height: 150px;
+    border: 1px solid #eee;
+    border-radius: 4px;
+    display: block;
+    /* Ensures it takes its own line and respects margin */
+    margin-bottom: 5px;
+}
+
+#remove-screenshot-btn {
+    font-size: 0.8em;
+    padding: 3px 6px;
+    background-color: #ffc107;
+    /* A warning yellow */
+    color: #333;
+    border: none;
+    border-radius: 3px;
+    cursor: pointer;
+}
+
+#remove-screenshot-btn:hover {
+    background-color: #e0a800;
+}
+
+
+.chat-input-area {
+    display: flex;
+    flex-direction: column;
+    /* Stack screenshot button on top */
+    gap: 8px;
+    /* Spacing between elements */
+    padding-top: 10px;
+    border-top: 1px solid #ccc;
+}
+
+.chat-input-area div {
+    display: flex;
+    gap: 8px;
+}
+
+#add-screenshot-btn {
+    padding: 8px 12px;
+    background-color: #28a745;
+    /* Green for add */
+    color: white;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 0.9em;
+    margin-bottom: 5px;
+    /* Space before input */
+}
+
+#add-screenshot-btn:hover {
+    background-color: #218838;
+}
+
+#add-screenshot-btn:disabled {
+    background-color: #ccc;
+    cursor: not-allowed;
+}
+
+#chat-input {
+    flex-grow: 1;
+    padding: 8px;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    resize: vertical;
+    /* Allow vertical resizing */
+    min-height: 40px;
+    /* Minimum height for textarea */
+    box-sizing: border-box;
+}
+
+#send-btn {
+    padding: 8px 15px;
+    background-color: #007bff;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 0.9em;
+}
+
+#send-btn:hover {
+    background-color: #0056b3;
+}
+
+#send-btn:disabled {
+    background-color: #ccc;
+    cursor: not-allowed;
+}
+
+#loading-indicator {
+    text-align: center;
+    padding: 10px;
+    font-style: italic;
+    color: #555;
+}
+
+.error-message {
+    color: red;
+    padding: 10px;
+    background-color: #ffebeb;
+    border: 1px solid red;
+    border-radius: 4px;
+    margin-top: 10px;
+    text-align: center;
+}
+
+/* Styles for rendered Markdown content within .ai-message */
+.ai-message h1,
+.ai-message h2,
+.ai-message h3,
+.ai-message h4,
+.ai-message h5,
+.ai-message h6 {
+    margin-top: 0.8em;
+    margin-bottom: 0.4em;
+    line-height: 1.2;
+}
+
+.ai-message h1 {
+    font-size: 1.4em;
+}
+
+.ai-message h2 {
+    font-size: 1.3em;
+}
+
+.ai-message h3 {
+    font-size: 1.2em;
+}
+
+.ai-message p {
+    margin-top: 0;
+    margin-bottom: 0.8em;
+    line-height: 1.5;
+}
+
+.ai-message ul,
+.ai-message ol {
+    margin-bottom: 0.8em;
+    padding-left: 20px;
+    /* Indent lists */
+}
+
+.ai-message li {
+    margin-bottom: 0.3em;
+}
+
+.ai-message blockquote {
+    margin: 0.8em 0;
+    padding: 0.5em 10px;
+    color: #666;
+    border-left: 3px solid #ddd;
+    background-color: #f9f9f9;
+}
+
+.ai-message pre {
+    background-color: #2d2d2d;
+    /* Dark background for code blocks */
+    color: #f8f8f2;
+    /* Light text for code blocks */
+    padding: 10px;
+    border-radius: 4px;
+    overflow-x: auto;
+    /* Allow horizontal scrolling for long code lines */
+    margin: 0.8em 0;
+    font-family: 'Courier New', Courier, monospace;
+    /* Monospace font */
+    font-size: 0.9em;
+    line-height: 1.4;
+}
+
+.ai-message code {
+    font-family: 'Courier New', Courier, monospace;
+    background-color: #f0f0f0;
+    /* Light grey for inline code */
+    padding: 2px 4px;
+    border-radius: 3px;
+    font-size: 0.9em;
+}
+
+.ai-message pre code {
+    background-color: transparent;
+    /* Inline code within pre should not have its own background */
+    padding: 0;
+    font-size: inherit;
+    /* Inherit font size from pre */
+}
+
+.ai-message table {
+    border-collapse: collapse;
+    margin: 1em 0;
+    width: auto;
+    /* Or 100% if you want full width tables */
+}
+
+.ai-message th,
+.ai-message td {
+    border: 1px solid #ddd;
+    padding: 6px 10px;
+    text-align: left;
+}
+
+.ai-message th {
+    background-color: #f2f2f2;
+}
+
+.ai-message strong {
+    font-weight: bold;
+}
+
+.ai-message em {
+    font-style: italic;
+}
+
+.ai-message a {
+    color: #007bff;
+    text-decoration: underline;
+}
+
+.ai-message a:hover {
+    color: #0056b3;
+}
