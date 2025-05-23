@@ -25,12 +25,16 @@ async function removeApiKey() {
     });
 }
 
-// Listener for the extension icon click
-chrome.action.onClicked.addListener(async (tab) => {
+// Named function for handling action clicks to allow export for testing
+async function handleActionClick(tab) {
     await chrome.sidePanel.open({ windowId: tab.windowId });
-});
+}
 
-chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+// Listener for the extension icon click
+chrome.action.onClicked.addListener(handleActionClick);
+
+// Named function for handling messages to allow export for testing
+function handleMessage(request, sender, sendResponse) {
     if (request.type === 'ANALYZE_CONTENT') {
         getApiKey().then(apiKey => {
             if (!apiKey) {
@@ -77,7 +81,9 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         return true;
     }
     return false; // For synchronous messages or if the type is not handled
-});
+}
+
+chrome.runtime.onMessage.addListener(handleMessage);
 
 async function callGeminiApi(payload, apiKey) {
     const { model, prompt, screenshotDataUrlBase64 } = payload;
@@ -139,3 +145,12 @@ async function callGeminiApi(payload, apiKey) {
     console.warn('Unexpected API response structure:', data);
     return 'No content response from API or unexpected format.';
 }
+
+module.exports = {
+    getApiKey,
+    setApiKey,
+    removeApiKey,
+    callGeminiApi,
+    handleMessage,
+    handleActionClick
+};
