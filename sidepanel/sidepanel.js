@@ -25,7 +25,8 @@ function initializeSidepanel() {
     const apiKeyInputSection = document.getElementById('api-key-input-section'); 
     const apiKeyInput = document.getElementById('api-key-input'); 
     const saveApiKeyBtn = document.getElementById('save-api-key-btn'); 
-    const chatSection = document.getElementById('chat-section'); 
+    const chatSection = document.getElementById('chat-section');
+    const newChatBtn = document.getElementById('new-chat-btn');
 
     let currentScreenshotDataUrl = null;
     let apiKeyIsSet = false;
@@ -130,6 +131,35 @@ function initializeSidepanel() {
     settingsBtn.addEventListener('click', () => {
         settingsPanel.style.display = settingsPanel.style.display === 'none' ? 'block' : 'none';
     });
+
+    if (newChatBtn) {
+        newChatBtn.addEventListener('click', async () => {
+            try {
+                const response = await chrome.runtime.sendMessage({ type: 'NEW_CHAT_SESSION' });
+                if (response && response.success) {
+                    if (chatMessages) {
+                        chatMessages.innerHTML = '';
+                    }
+                    if (chatInput) {
+                        chatInput.value = '';
+                    }
+                    if (currentScreenshotDataUrl && removeScreenshotBtn && screenshotPreviewContainer && screenshotPreview) {
+                        currentScreenshotDataUrl = null;
+                        screenshotPreview.src = "#";
+                        screenshotPreviewContainer.style.display = 'none';
+                    }
+                    addMessageToChat('New chat session started.', 'system');
+                } else {
+                    const errorMsg = response && response.error ? response.error : 'Failed to start new chat session.';
+                    console.error('New chat session error:', errorMsg, response);
+                    displayError(errorMsg);
+                }
+            } catch (error) {
+                console.error('Error starting new chat session:', error);
+                displayError(`Failed to start new chat: ${error.message}`);
+            }
+        });
+    }
 
 
     // Function to add a message to the chat window

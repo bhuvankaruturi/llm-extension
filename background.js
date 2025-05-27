@@ -1,4 +1,8 @@
 // background.js
+const { GoogleGenerativeAI } = require("@google/generative-ai");
+
+// Stores the current chat session
+let chatSession = null;
 
 // --- API Key Management ---
 async function getApiKey() {
@@ -45,12 +49,14 @@ function handleMessage(request, sender, sendResponse) {
                 .then(response => sendResponse({ success: true, data: response }))
                 .catch(error => {
                     console.error('Gemini API Error:', error);
-                    // Check if the error is due to an invalid key, although the API might not return a specific code for this.
-                    // For now, we'll rely on the user re-entering if it fails.
                     sendResponse({ success: false, error: error.message || 'Unknown error calling Gemini API' });
                 });
         });
         return true; // Indicates that the response is sent asynchronously
+    } else if (request.type === 'NEW_CHAT_SESSION') {
+        chatSession = null;
+        sendResponse({ success: true, message: 'New chat session started.' });
+        return true;
     } else if (request.type === 'CAPTURE_SCREENSHOT') {
         chrome.tabs.captureVisibleTab(null, { format: 'png' }, (dataUrl) => {
             if (chrome.runtime.lastError) {
@@ -87,63 +93,65 @@ chrome.runtime.onMessage.addListener(handleMessage);
 
 async function callGeminiApi(payload, apiKey) {
     const { model, prompt, screenshotDataUrlBase64 } = payload;
-    let apiEndpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
-
-    const parts = [{ text: prompt }];
-
-    if (screenshotDataUrlBase64) {
-        parts.push({
-            inline_data: {
-                mime_type: 'image/png',
-                data: screenshotDataUrlBase64
-            }
-        });
-    }
-
-    const requestBody = {
-        contents: [{ parts: parts }],
-        systemInstruction: {
-            parts: [
-                { text: "Please format your entire response in Markdown. If you include code, use Markdown code blocks." }
-            ]
-        }
-    };
-
-    const response = await fetch(apiEndpoint, {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(requestBody),
+    const genAI = new GoogleGenerativeAI(apiKey);
+    const generativeModel = genAI.getGenerativeModel({
+        model: model,
+        systemInstruction: "Please format your entire response in Markdown. If you include code, use Markdown code blocks."
     });
 
-    if (!response.ok) {
-        const errorData = await response.json();
-        console.error('Gemini API Error Response:', errorData);
-        // Distinguish API key errors if possible, e.g. by status code or error message content
-        if (response.status === 400 && errorData.error?.message.toLowerCase().includes('api key not valid')) {
-             throw new Error('API_KEY_INVALID');
+    try {
+        const parts = [{ text: prompt }];
+        if (screenshotDataUrlBase64) {
+            parts.push({
+                inlineData: {
+                    mimeType: 'image/png',
+                    data: screenshotDataUrlBase64
+                }
+            });
         }
-        const detailedMessage = errorData.error?.details?.[0]?.reason || errorData.error?.message;
-        const errorMessage = detailedMessage || `API request failed with status ${response.status}`;
-        throw new Error(errorMessage);
+
+        if (!chatSession) {
+            chatSession = generativeModel.startChat({
+                history: [], // We can enhance history management later
+            });
+        }
+
+        const result = await chatSession.sendMessage(parts);
+        const response = result.response;
+
+        if (response.promptFeedback && response.promptFeedback.blockReason) {
+            return `Response blocked: ${response.promptFeedback.blockReason}${response.promptFeedback.blockReasonMessage ? ' - ' + response.promptFeedback.blockReasonMessage : ''}`;
+        }
+
+        if (response.candidates && response.candidates.length > 0 &&
+            response.candidates[0].content && response.candidates[0].content.parts &&
+            response.candidates[0].content.parts.length > 0 &&
+            response.candidates[0].content.parts[0].text) {
+            return response.candidates[0].content.parts[0].text;
+        } else if (response.candidates && response.candidates.length > 0 && response.candidates[0].finishReason && response.candidates[0].finishReason !== "STOP") {
+            return `Model finished with reason: ${response.candidates[0].finishReason}. No text content available.`;
+        }
+
+        console.warn('Unexpected API response structure:', response);
+        return 'No content response from API or unexpected format.';
+
+    } catch (error) {
+        console.error('Gemini API Client Error:', error);
+        const errorMessage = error.message ? error.message.toLowerCase() : "";
+        const errorStatus = error.status ? error.status.toLowerCase() : "";
+        const errorToString = error.toString ? error.toString().toLowerCase() : "";
+
+        if (errorMessage.includes('api key') && (errorMessage.includes('invalid') || errorMessage.includes('valid'))) {
+            throw new Error('API_KEY_INVALID');
+        }
+        if (errorMessage.includes('permission_denied') || errorStatus.includes('permission_denied')) {
+            throw new Error('API_KEY_INVALID');
+        }
+        if (errorToString.includes('api key not valid')) { // Keep specific check for toString if necessary
+            throw new Error('API_KEY_INVALID');
+        }
+        throw new Error(error.message || 'Error calling Gemini API with client');
     }
-
-    const data = await response.json();
-
-    if (data.candidates && data.candidates.length > 0 &&
-        data.candidates[0].content && data.candidates[0].content.parts &&
-        data.candidates[0].content.parts.length > 0 &&
-        data.candidates[0].content.parts[0].text) {
-        return data.candidates[0].content.parts[0].text;
-    } else if (data.promptFeedback && data.promptFeedback.blockReason) {
-        return `Response blocked: ${data.promptFeedback.blockReason}${data.promptFeedback.blockReasonMessage ? ' - ' + data.promptFeedback.blockReasonMessage : ''}`;
-    } else if (data.candidates && data.candidates.length > 0 && data.candidates[0].finishReason && data.candidates[0].finishReason !== "STOP") {
-        return `Model finished with reason: ${data.candidates[0].finishReason}. No text content available.`;
-    }
-
-    console.warn('Unexpected API response structure:', data);
-    return 'No content response from API or unexpected format.';
 }
 
 module.exports = {

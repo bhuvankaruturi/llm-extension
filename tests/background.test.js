@@ -1,27 +1,61 @@
 // tests/background.test.js
+
+// Mock @google/generative-ai at the top level
+const mockChatSession = {
+  sendMessage: jest.fn(),
+};
+const mockGenerativeModel = {
+  startChat: jest.fn().mockReturnValue(mockChatSession),
+  // We also need to mock generateContent if it's called by the model directly,
+  // though for chat it's usually sendMessage via a ChatSession.
+  generateContent: jest.fn(), 
+};
+const mockGenAIInstance = {
+  getGenerativeModel: jest.fn().mockReturnValue(mockGenerativeModel),
+};
+jest.mock('@google/generative-ai', () => ({
+  GoogleGenerativeAI: jest.fn().mockImplementation(() => mockGenAIInstance),
+}));
+
+// Now require the module to be tested AFTER jest.mock
 const {
-    getApiKey,
-    setApiKey,
-    removeApiKey,
-    callGeminiApi,
-    handleMessage, // Now imported
-    handleActionClick // Now imported
-  } = require('../background'); // Adjust path as necessary
-  
-  // Mocks from setupTests.js are automatically applied.
-  // global.chrome is available.
-  
-  describe('Background Script Tests', () => {
-    beforeEach(() => {
-      // Clears mock usage data before each test.
-      // jest.clearAllMocks() is automatically called if clearMocks: true in jest.config.js
-      // but explicit call here for clarity and safety.
-      jest.clearAllMocks();
-      // Reset lastError before each test that might use it
-      delete global.chrome.runtime.lastError;
-    });
-  
-    describe('API Key Functions', () => {
+  getApiKey,
+  setApiKey,
+  removeApiKey,
+  callGeminiApi,
+  handleMessage,
+  handleActionClick
+} = require('../background');
+
+// Mocks from setupTests.js are automatically applied for chrome object.
+// global.chrome is available.
+
+describe('Background Script Tests', () => {
+  // mockChatSession, mockGenerativeModel, mockGenAIInstance are defined above and are in scope.
+
+  beforeEach(() => {
+    // Clears mock usage data (e.g., call counts) before each test.
+    jest.clearAllMocks(); 
+    // Resets chrome.runtime.lastError before each test.
+    delete global.chrome.runtime.lastError;
+
+    // Reset the implementation and state of mocks to ensure clean slate for each test.
+    // This is crucial if mocks are defined outside beforeEach and might retain state.
+    mockChatSession.sendMessage.mockReset();
+    mockGenerativeModel.startChat.mockReset().mockReturnValue(mockChatSession);
+    mockGenerativeModel.generateContent.mockReset(); // Reset this as well if used
+    mockGenAIInstance.getGenerativeModel.mockReset().mockReturnValue(mockGenerativeModel);
+    
+    // Ensure the GoogleGenerativeAI constructor mock is also reset for calls and returns the correct instance.
+    const { GoogleGenerativeAI } = require('@google/generative-ai');
+    GoogleGenerativeAI.mockClear().mockImplementation(() => mockGenAIInstance);
+    
+    // Reset the internal chatSession state in background.js by sending a specific message.
+    // This assumes handleMessage is correctly imported and background.js is structured to handle this.
+    handleMessage({ type: 'NEW_CHAT_SESSION' }, {}, jest.fn());
+  });
+
+  describe('API Key Functions', () => {
       describe('getApiKey', () => {
         it('should call chrome.storage.local.get with "geminiApiKey" and resolve with the key', async () => {
           const mockKey = 'test_api_key';
@@ -72,228 +106,151 @@ const {
   
     describe('callGeminiApi Function', () => {
         const mockApiKey = 'test-gemini-api-key';
-        const mockModel = 'gemini-pro';
-        const mockPrompt = 'Test prompt';
+        const mockModelId = 'gemini-pro'; // or gemini-pro-vision if testing images
+        const mockPromptText = 'Test prompt';
         const systemInstructionText = "Please format your entire response in Markdown. If you include code, use Markdown code blocks.";
 
-        beforeEach(() => {
-            global.fetch.mockClear(); // Clear fetch mock specifically for this block
-        });
-
-        it('should form request correctly and return text for standard response', async () => {
+        it('should initialize client, start chat and send message, then return text', async () => {
             const mockResponseText = 'Gemini response text';
-            global.fetch.mockResolvedValueOnce({
-                ok: true,
-                json: async () => ({
+            // Use the mockChatSession defined outside beforeEach
+            mockChatSession.sendMessage.mockResolvedValueOnce({
+                response: {
                     candidates: [{ content: { parts: [{ text: mockResponseText }] }, finishReason: 'STOP' }],
-                }),
-                status: 200,
+                    // text: () => mockResponseText, // Simpler mock if only text() is used
+                }
             });
 
-            const payload = { model: mockModel, prompt: mockPrompt };
+            const payload = { model: mockModelId, prompt: mockPromptText };
             const result = await callGeminiApi(payload, mockApiKey);
-
-            expect(global.fetch).toHaveBeenCalledWith(
-                `https://generativelanguage.googleapis.com/v1beta/models/${mockModel}:generateContent?key=${mockApiKey}`,
-                expect.objectContaining({
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        contents: [{ parts: [{ text: mockPrompt }] }],
-                        systemInstruction: { parts: [{ text: systemInstructionText }] },
-                        // generationConfig and safetySettings are not in the provided background.js callGeminiApi
-                    }),
-                })
-            );
+            
+            const { GoogleGenerativeAI } = require('@google/generative-ai'); // Get the mocked version
+            expect(GoogleGenerativeAI).toHaveBeenCalledWith(mockApiKey);
+            expect(mockGenAIInstance.getGenerativeModel).toHaveBeenCalledWith({
+                model: mockModelId,
+                systemInstruction: systemInstructionText
+            });
+            expect(mockGenerativeModel.startChat).toHaveBeenCalledWith({ history: [] });
+            expect(mockChatSession.sendMessage).toHaveBeenCalledWith([{ text: mockPromptText }]);
             expect(result).toBe(mockResponseText);
         });
 
-        it('should include screenshot data if provided', async () => {
+        it('should use existing chat session if available', async () => {
+            const mockResponseText1 = 'First response';
+            const mockResponseText2 = 'Second response';
+
+            mockChatSession.sendMessage.mockResolvedValueOnce({
+                response: { candidates: [{ content: { parts: [{ text: mockResponseText1 }] } }] }
+            });
+            const payload1 = { model: mockModelId, prompt: "First prompt" };
+            await callGeminiApi(payload1, mockApiKey);
+
+            expect(mockGenerativeModel.startChat).toHaveBeenCalledTimes(1);
+            // mockGenerativeModel.startChat.mockClear(); // Not needed due to mockReset in beforeEach
+
+            mockChatSession.sendMessage.mockResolvedValueOnce({
+                response: { candidates: [{ content: { parts: [{ text: mockResponseText2 }] } }] }
+            });
+            const payload2 = { model: mockModelId, prompt: "Second prompt" };
+            const result2 = await callGeminiApi(payload2, mockApiKey);
+
+            expect(mockGenerativeModel.startChat).toHaveBeenCalledTimes(1); // Still 1, not called again
+            expect(mockChatSession.sendMessage).toHaveBeenCalledWith([{ text: "Second prompt" }]);
+            expect(result2).toBe(mockResponseText2);
+        });
+
+
+        it('should include screenshot data if provided (gemini-pro-vision)', async () => {
             const mockScreenshotDataUrlBase64 = 'somedata';
-            global.fetch.mockResolvedValueOnce({
-                ok: true,
-                json: async () => ({
-                    candidates: [{ content: { parts: [{ text: "Response with image" }] }, finishReason: 'STOP' }],
-                }),
-                status: 200,
+            const visionModelId = 'gemini-pro-vision';
+            mockChatSession.sendMessage.mockResolvedValueOnce({
+                response: { candidates: [{ content: { parts: [{ text: "Response with image" }] } }] }
             });
             
-            const payload = { model: mockModel, prompt: mockPrompt, screenshotDataUrlBase64: mockScreenshotDataUrlBase64 };
+            const payload = { model: visionModelId, prompt: mockPromptText, screenshotDataUrlBase64: mockScreenshotDataUrlBase64 };
             await callGeminiApi(payload, mockApiKey);
 
-            expect(global.fetch).toHaveBeenCalledWith(
-                expect.anything(), // URL
-                expect.objectContaining({
-                    body: JSON.stringify({
-                        contents: [{ parts: [
-                            { text: mockPrompt },
-                            { inline_data: { mime_type: 'image/png', data: mockScreenshotDataUrlBase64 } }
-                        ]}],
-                        systemInstruction: { parts: [{ text: systemInstructionText }] },
-                    }),
-                })
-            );
+            expect(mockChatSession.sendMessage).toHaveBeenCalledWith([
+                { text: mockPromptText },
+                { inlineData: { mimeType: 'image/png', data: mockScreenshotDataUrlBase64 } }
+            ]);
         });
 
         it('should return block reason if response is blocked', async () => {
             const blockReason = 'SAFETY';
-            const blockMessage = 'This content is blocked due to safety reasons.';
-            global.fetch.mockResolvedValueOnce({
-                ok: true, 
-                json: async () => ({
+            const blockMessage = 'This content is blocked.';
+            mockChatSession.sendMessage.mockResolvedValueOnce({
+                response: {
                     promptFeedback: { blockReason: blockReason, blockReasonMessage: blockMessage },
-                }),
-                status: 200,
+                }
             });
-            const payload = { model: mockModel, prompt: mockPrompt };
+            const payload = { model: mockModelId, prompt: mockPromptText };
             const result = await callGeminiApi(payload, mockApiKey);
             expect(result).toBe(`Response blocked: ${blockReason} - ${blockMessage}`);
         });
         
-        it('should return finish reason if not STOP and no text', async () => {
+        it('should return finish reason if not STOP and no text parts', async () => {
             const finishReason = 'MAX_TOKENS';
-            global.fetch.mockResolvedValueOnce({
-                ok: true,
-                json: async () => ({
-                    candidates: [{ finishReason: finishReason, content: { parts: [{text: ""}] } }], 
-                }),
-                status: 200,
+            mockChatSession.sendMessage.mockResolvedValueOnce({
+                response: {
+                    // Ensure candidates exists, but parts might be empty or not what's expected for text extraction
+                    candidates: [{ finishReason: finishReason, content: { parts: [] } }],
+                }
             });
-            const payload = { model: mockModel, prompt: mockPrompt };
+            const payload = { model: mockModelId, prompt: mockPromptText };
             const result = await callGeminiApi(payload, mockApiKey);
-            // Based on background.js logic, if parts[0].text is empty, it might fall through to "No content response..."
-            // Let's adjust to match the exact logic in background.js:
-            // It checks for data.candidates[0].content.parts[0].text first. If that's present (even if empty string), it returns it.
-            // If text is missing/null, then it checks finishReason.
-            // Let's refine test case for when parts[0].text is NOT there.
-            global.fetch.mockClear();
-             global.fetch.mockResolvedValueOnce({
-                ok: true,
-                json: async () => ({
-                    candidates: [{ finishReason: finishReason /* no content or parts */ }],
-                }),
-                status: 200,
+            expect(result).toBe(`Model finished with reason: ${finishReason}. No text content available.`);
+        });
+         it('should return finish reason if not STOP and no text in part', async () => {
+            const finishReason = 'OTHER';
+            mockChatSession.sendMessage.mockResolvedValueOnce({
+                response: {
+                     candidates: [{ finishReason: finishReason, content: { parts: [{ someOtherProperty: 'value'}] } }],
+                }
             });
-            const result2 = await callGeminiApi(payload, mockApiKey);
-            expect(result2).toBe(`Model finished with reason: ${finishReason}. No text content available.`);
+            const payload = { model: mockModelId, prompt: mockPromptText };
+            const result = await callGeminiApi(payload, mockApiKey);
+            expect(result).toBe(`Model finished with reason: ${finishReason}. No text content available.`);
         });
 
 
-        it('should throw error for invalid API key (400 specifically handled)', async () => {
-            global.fetch.mockResolvedValueOnce({
-                ok: false,
-                status: 400,
-                json: async () => ({ error: { message: 'API key not valid. Please pass a valid API key.' } }),
-            });
-            const payload = { model: mockModel, prompt: mockPrompt };
-            await expect(callGeminiApi(payload, mockApiKey))
-                .rejects.toThrow('API_KEY_INVALID');
+        it('should throw API_KEY_INVALID for specific error messages', async () => {
+            const errorMessages = ['api key not valid', 'permission_denied', 'api key is invalid'];
+            for (const msg of errorMessages) {
+                mockChatSession.sendMessage.mockReset().mockRejectedValueOnce(new Error(msg));
+                const payload = { model: mockModelId, prompt: mockPromptText };
+                handleMessage({ type: 'NEW_CHAT_SESSION' }, {}, jest.fn());
+                await expect(callGeminiApi(payload, mockApiKey)).rejects.toThrow('API_KEY_INVALID');
+            }
+             const permDeniedError = new Error("Some error");
+             permDeniedError.status = 'PERMISSION_DENIED';
+             mockChatSession.sendMessage.mockReset().mockRejectedValueOnce(permDeniedError);
+             handleMessage({ type: 'NEW_CHAT_SESSION' }, {}, jest.fn());
+             const payloadForPermDenied = { model: mockModelId, prompt: mockPromptText };
+             await expect(callGeminiApi(payloadForPermDenied, mockApiKey)).rejects.toThrow('API_KEY_INVALID');
         });
 
-        it('should throw generic error message for other HTTP errors (e.g. 500)', async () => {
-            const errorMessage = 'Internal Server Error';
-            global.fetch.mockResolvedValueOnce({
-                ok: false,
-                status: 500,
-                json: async () => ({ error: { message: errorMessage } }),
-            });
-            const payload = { model: mockModel, prompt: mockPrompt };
+        it('should throw generic error for other client errors', async () => {
+            const errorMessage = 'Some other client error';
+            mockChatSession.sendMessage.mockReset().mockRejectedValueOnce(new Error(errorMessage));
+            const payload = { model: mockModelId, prompt: mockPromptText };
+            handleMessage({ type: 'NEW_CHAT_SESSION' }, {}, jest.fn());
             await expect(callGeminiApi(payload, mockApiKey))
                 .rejects.toThrow(errorMessage);
         });
         
-        it('should throw error for network issues (fetch rejects)', async () => {
-            global.fetch.mockRejectedValueOnce(new Error('Network error'));
-            const payload = { model: mockModel, prompt: mockPrompt };
-            await expect(callGeminiApi(payload, mockApiKey))
-                .rejects.toThrow('Network error');
-        });
-
-        it('should handle unexpected or empty response structure gracefully', async () => {
-            global.fetch.mockResolvedValueOnce({
-                ok: true,
-                json: async () => ({}), // Empty object
-                status: 200,
-            });
-            const payload = { model: mockModel, prompt: mockPrompt };
+        it('should handle unexpected empty response (no candidates, no feedback)', async () => {
+            mockChatSession.sendMessage.mockReset().mockResolvedValueOnce({ response: {} });
+            const payload = { model: mockModelId, prompt: mockPromptText };
             const result = await callGeminiApi(payload, mockApiKey);
             expect(result).toBe('No content response from API or unexpected format.');
         });
-        
-        it('should handle response with no candidates', async () => {
-            global.fetch.mockResolvedValueOnce({
-              ok: true,
-              json: async () => ({ someOtherProperty: 'value' }), // No candidates array
-              status: 200,
-            });
-            const payload = { model: mockModel, prompt: mockPrompt };
-            const result = await callGeminiApi(payload, mockApiKey);
-            expect(result).toBe('No content response from API or unexpected format.');
-          });
-    
-          it('should handle response with empty candidates array', async () => {
-            global.fetch.mockResolvedValueOnce({
-              ok: true,
-              json: async () => ({ candidates: [] }), // Empty candidates array
-              status: 200,
-            });
-            const payload = { model: mockModel, prompt: mockPrompt };
-            const result = await callGeminiApi(payload, mockApiKey);
-            expect(result).toBe('No content response from API or unexpected format.');
-          });
-    
-          it('should handle response with no content in candidate', async () => {
-            global.fetch.mockResolvedValueOnce({
-              ok: true,
-              json: async () => ({
-                candidates: [{ finishReason: 'STOP' /* No content object */ }],
-              }),
-              status: 200,
-            });
-            const payload = { model: mockModel, prompt: mockPrompt };
-            const result = await callGeminiApi(payload, mockApiKey);
-            expect(result).toBe('No content response from API or unexpected format.');
-          });
-    
-          it('should handle response with no parts in content', async () => {
-            global.fetch.mockResolvedValueOnce({
-              ok: true,
-              json: async () => ({
-                candidates: [{ content: { /* No parts array */ }, finishReason: 'STOP' }],
-              }),
-              status: 200,
-            });
-            const payload = { model: mockModel, prompt: mockPrompt };
-            const result = await callGeminiApi(payload, mockApiKey);
-            expect(result).toBe('No content response from API or unexpected format.');
-          });
-    
-          it('should handle response with empty parts array', async () => {
-            global.fetch.mockResolvedValueOnce({
-              ok: true,
-              json: async () => ({
-                candidates: [{ content: { parts: [] }, finishReason: 'STOP' }],
-              }),
-              status: 200,
-            });
-            const payload = { model: mockModel, prompt: mockPrompt };
-            const result = await callGeminiApi(payload, mockApiKey);
-            expect(result).toBe('No content response from API or unexpected format.');
-          });
 
-          it('should handle response with no text in part', async () => {
-            global.fetch.mockResolvedValueOnce({
-              ok: true,
-              json: async () => ({
-                candidates: [{ content: { parts: [{ /* no text property */ }] }, finishReason: 'STOP' }],
-              }),
-              status: 200,
-            });
-            const payload = { model: mockModel, prompt: mockPrompt };
+        it('should handle response with no candidates array', async () => {
+            mockChatSession.sendMessage.mockReset().mockResolvedValueOnce({ response: { promptFeedback: null } }); // No candidates
+            const payload = { model: mockModelId, prompt: mockPromptText };
             const result = await callGeminiApi(payload, mockApiKey);
-            // This case, based on background.js, will return undefined, which then becomes 'No content response from API or unexpected format.'
             expect(result).toBe('No content response from API or unexpected format.');
-          });
+        });
     });
 
     describe('chrome.runtime.onMessage Listener (handleMessage)', () => {
@@ -308,19 +265,27 @@ const {
                 type: 'ANALYZE_CONTENT',
                 payload: { model: 'gemini-pro', prompt: 'Analyze this' }
             };
+             // Mock callGeminiApi for these tests as its unit tests are separate
+             let callGeminiApiMock;
+
+             beforeEach(() => {
+                 // Ensure we have a fresh mock for each test in this suite
+                 // callGeminiApi is in the same module, so we might need to spy on it
+                 // or structure it for easier mocking. For now, let's assume it's implicitly tested
+                 // by the mock client behavior or we could explicitly mock it if needed.
+                 // The current structure of callGeminiApi using the client directly means
+                 // mocking the client (GoogleGenerativeAI parts) is the primary way to test.
+                 // So, we rely on the mockChatSession.sendMessage mocks.
+             });
     
-            it('should call getApiKey, callGeminiApi, and sendResponse with success if API key exists and API call succeeds', async () => {
+            it('should call getApiKey, then callGeminiApi (via client mocks), and sendResponse with success', async () => {
                 const mockKey = 'fake_key';
                 const mockApiResponse = 'Analysis result';
-                global.chrome.storage.local.get.mockImplementationOnce((keys, callback) => callback({ geminiApiKey: mockKey })); // Mocks getApiKey
-                global.fetch.mockResolvedValueOnce({ // Mocks callGeminiApi
-                    ok: true,
-                    json: async () => ({ candidates: [{ content: { parts: [{ text: mockApiResponse }] } }] }),
-                    status: 200,
+                global.chrome.storage.local.get.mockImplementationOnce((keys, callback) => callback({ geminiApiKey: mockKey }));
+                mockChatSession.sendMessage.mockResolvedValueOnce({ // Mocking the client's response
+                    response: { candidates: [{ content: { parts: [{ text: mockApiResponse }] } }] }
                 });
     
-                // Need to ensure the promise chain in handleMessage completes
-                // Wrap in a Promise that resolves when sendResponse is called
                 await new Promise(resolve => {
                     handleMessage(analyzeRequest, {}, (response) => {
                         mockSendResponse(response);
@@ -329,7 +294,7 @@ const {
                 });
     
                 expect(global.chrome.storage.local.get).toHaveBeenCalledWith(['geminiApiKey'], expect.any(Function));
-                expect(global.fetch).toHaveBeenCalled(); // Check that callGeminiApi's fetch was called
+                expect(mockChatSession.sendMessage).toHaveBeenCalled();
                 expect(mockSendResponse).toHaveBeenCalledWith({ success: true, data: mockApiResponse });
             });
     
@@ -344,17 +309,13 @@ const {
                 });
                 
                 expect(mockSendResponse).toHaveBeenCalledWith({ success: false, error: 'API_KEY_MISSING', message: 'Gemini API Key is not set.' });
-                expect(global.fetch).not.toHaveBeenCalled();
+                expect(mockChatSession.sendMessage).not.toHaveBeenCalled();
             });
     
             it('should send error from callGeminiApi if it throws API_KEY_INVALID', async () => {
                 const mockKey = 'fake_key';
                 global.chrome.storage.local.get.mockImplementationOnce((keys, callback) => callback({ geminiApiKey: mockKey }));
-                global.fetch.mockResolvedValueOnce({ // Mocks callGeminiApi throwing API_KEY_INVALID
-                    ok: false,
-                    status: 400,
-                    json: async () => ({ error: { message: 'API key not valid.' } }),
-                });
+                mockChatSession.sendMessage.mockRejectedValueOnce(new Error('API key not valid.')); // Mock client error
     
                 await new Promise(resolve => {
                     handleMessage(analyzeRequest, {}, (response) => {
@@ -368,13 +329,9 @@ const {
 
             it('should send error from callGeminiApi for other errors', async () => {
                 const mockKey = 'fake_key';
-                const errorMessage = "Some other API error";
+                const errorMessage = "Some other client error";
                 global.chrome.storage.local.get.mockImplementationOnce((keys, callback) => callback({ geminiApiKey: mockKey }));
-                global.fetch.mockResolvedValueOnce({ // Mocks callGeminiApi throwing other error
-                    ok: false,
-                    status: 500,
-                    json: async () => ({ error: { message: errorMessage } }),
-                });
+                mockChatSession.sendMessage.mockRejectedValueOnce(new Error(errorMessage)); // Mock client error
     
                 await new Promise(resolve => {
                     handleMessage(analyzeRequest, {}, (response) => {
@@ -384,6 +341,34 @@ const {
                 });
     
                 expect(mockSendResponse).toHaveBeenCalledWith({ success: false, error: errorMessage });
+            });
+        });
+        
+        describe('NEW_CHAT_SESSION', () => {
+            it('should reset chat session and send success response', async () => {
+                // First, make a call to establish a session
+                const mockKey = 'fake_key';
+                global.chrome.storage.local.get.mockImplementationOnce((keys, callback) => callback({ geminiApiKey: mockKey }));
+                mockChatSession.sendMessage.mockResolvedValueOnce({ response: { candidates: [{ content: { parts: [{ text: "Hi" }] } }] } });
+                await new Promise(resolve => handleMessage({ type: 'ANALYZE_CONTENT', payload: {} }, {}, () => resolve()));
+
+                expect(mockGenerativeModel.startChat).toHaveBeenCalledTimes(1); // Session was started
+
+                // Now, send NEW_CHAT_SESSION
+                await new Promise(resolve => {
+                    handleMessage({ type: 'NEW_CHAT_SESSION' }, {}, (response) => {
+                        mockSendResponse(response);
+                        resolve();
+                    });
+                });
+                expect(mockSendResponse).toHaveBeenCalledWith({ success: true, message: 'New chat session started.' });
+
+                // Make another call to ensure a new session is started
+                global.chrome.storage.local.get.mockImplementationOnce((keys, callback) => callback({ geminiApiKey: mockKey }));
+                mockChatSession.sendMessage.mockResolvedValueOnce({ response: { candidates: [{ content: { parts: [{ text: "Hello again" }] } }] } });
+                await new Promise(resolve => handleMessage({ type: 'ANALYZE_CONTENT', payload: {} }, {}, () => resolve()));
+                
+                expect(mockGenerativeModel.startChat).toHaveBeenCalledTimes(2); // Start chat was called again
             });
         });
 
