@@ -146,11 +146,13 @@ async function callGeminiApi(payload, apiKey) {
     return 'No content response from API or unexpected format.';
 }
 
-module.exports = {
-    getApiKey,
-    setApiKey,
-    removeApiKey,
-    callGeminiApi,
-    handleMessage,
-    handleActionClick
-};
+if (typeof module !== 'undefined' && module.exports) {
+    module.exports = {
+        getApiKey,
+        setApiKey,
+        removeApiKey,
+        callGeminiApi,
+        handleMessage,
+        handleActionClick
+    };
+}
